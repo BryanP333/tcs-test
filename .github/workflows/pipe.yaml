@@ -1,0 +1,102 @@
+name: Run pull request pipeline
+
+on:
+  pull_request:
+    branches:
+        - 'main'
+        - 'develop'
+jobs:
+  security_scan:
+    name: Security Scan Infrastructure
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      AWS_REGION: 'us-west-2'
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: 'Git: Config'
+        run: |
+          git config --local --remove-section http."https://github.com/"
+          git config --global url."https://foo:${GH_TOKEN}@github.com/BryanP333".insteadOf "https://github.com/BryanP333"
+        env:
+          GH_TOKEN: ${{ secrets.PR_CHECK_TOKEN }}
+
+      - name: 'Git: Set env BRANCH'
+        run: echo "BRANCH=$(echo ${GITHUB_BASE_REF})" >> $GITHUB_ENV
+      
+      - name: login to docker registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKERHUB_USERNAME}}
+          password: ${{secrets.DOCKERHUB_TOKEN}}
+
+      - name: build and push microservice
+        uses: docker/build-push-action@v5
+        with:
+          context: src/microservice/
+          push: true
+          tags: puenteb/tcs-test:latest
+
+      - name: 'Terraform: Plan authorizer'
+        run: |
+          make component-plan env=dev component=authorizer assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'Terraform: Build authorizer'
+        run: |
+          make component-build env=dev component=authorizer assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'Terraform: Plan microservice'
+        run: |
+          make component-plan env=dev component=ecs assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'Terraform: Build microservice'
+        run: |
+          make component-build env=dev component=ecs assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'Terraform: Plan REST API'
+        run: |
+          make component-plan env=dev component=api-gateway assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'Terraform: Build REST API'
+        run: |
+          make component-build env=dev component=api-gateway assume_role=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'GET API URL'
+        run: |
+          cd infra/resources/api-gateway/
+          REST_API_URL=$(terraform output REST_API)
+          echo "REST_API_URL=$REST_API_URL" >> $GITHUB_ENV
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: 'TEST MICROSERVICE'
+        run: |
+          curl -X POST -H "X-Parse-REST-API-Key: 2f5ae96c-b558-4c7b-a590-a501ae1c3f6c" \
+          -H "X-JWT-KWY: ${{ secrets.JWT }}" \
+          -H "Content-Type: application/json" \
+          -d '{ "message" : "This is a test", "to": "Juan Perez", "from": "Rita Asturia", "timeToLifeSec" : 45 }' \
+          "${{ env.REST_API_URL }}"

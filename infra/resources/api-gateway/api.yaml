@@ -1,0 +1,33 @@
+
+openapi: "3.0.1"
+info:
+  title: "DevOps"
+  version: "1.0"
+paths:
+  /:
+    post:
+      responses:
+        "200":
+          description: "200 response"
+      security:
+      - Authorizer: []
+      x-amazon-apigateway-integration:
+        httpMethod: "POST"
+        uri: "http://${load_balancer_url}/DevOps"
+        responses:
+          default:
+            statusCode: "200"
+        passthroughBehavior: "when_no_match"
+        type: "http_proxy"
+components:
+  securitySchemes:
+    Authorizer:
+      type: "apiKey"
+      name: "Unused"
+      in: "header"
+      x-amazon-apigateway-authtype: "custom"
+      x-amazon-apigateway-authorizer:
+        type: "request"
+        authorizerUri: "${lambda_auth_function_arn}"
+        authorizerResultTtlInSeconds: 300
+        identitySource: "method.request.header.X-JWT-KWY, method.request.header.X-Parse-REST-API-Key"
