@@ -1,6 +1,6 @@
 {
     "aws_account": "590183783078",
     "aws_region": "us-west-2",
-    "state_bucket_name": "tfstates",
+    "state_bucket_name": "tfstates-tcs",
     "pbs_name": "tcs"
 }
